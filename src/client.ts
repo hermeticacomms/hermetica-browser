@@ -70,7 +70,8 @@ export function createClient(opts: ClientOptions): Client {
       const ok = await transport.send('/ingest/v1/batch', { events: batch, consent });
       if (ok) emit('flush', batch);
       else { queue.unshift(...batch); queue.splice(0, queue.length - maxQueue); emit('error', new Error('send failed')); }
-      if (ok && queue.length) await flush();
+      // Not awaited: the next batch chains behind this promise, so awaiting it here would deadlock.
+      if (ok && queue.length) void flush();
     });
     return inflight;
   }

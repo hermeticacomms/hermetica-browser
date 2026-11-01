@@ -13,11 +13,12 @@ export function createTransport(endpoint: string, siteKey: string, onError: (e: 
   const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
   return {
     async send(path, body) {
-      for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+      // One key per batch, reused by every retry of it.
+      for (let attempt = 0, key = crypto.randomUUID(); attempt < MAX_RETRIES; attempt++) {
         try {
           const res = await fetch(url(path), {
             method: 'POST', keepalive: true, body: JSON.stringify(body),
-            headers: { 'content-type': 'application/json', authorization: `Bearer ${siteKey}` },
+            headers: { 'content-type': 'application/json', authorization: `Bearer ${siteKey}`, 'idempotency-key': key },
           });
           if (res.status < 500 && res.status !== 429) return true; // 4xx will not improve on retry
         } catch (e) { onError(e); }

@@ -5,3 +5,17 @@ __pycache__/
 build/
 vendor/
 composer.lock
+pkg/
+Gemfile.lock
+target/
+bin/
+obj/
+out/
+.dart_tool/
+pubspec.lock
+.gradle/
+local.properties
+.idea/
+*.iml
+.build/
+.swiftpm/

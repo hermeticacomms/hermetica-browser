@@ -3,10 +3,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createClient } from './client.ts';
 
-const sent: { url: string; body: any; auth: string }[] = [];
+const sent: { url: string; body: any; auth: string; key: string | undefined }[] = [];
 let status = 200;
 const fetchMock = vi.fn(async (url: string, init: RequestInit) => {
-  sent.push({ url, body: JSON.parse(init.body as string), auth: (init.headers as Record<string, string>).authorization! });
+  sent.push({ url, body: JSON.parse(init.body as string), auth: (init.headers as Record<string, string>).authorization!, key: (init.headers as Record<string, string>)['idempotency-key'] });
   return new Response('{}', { status });
 });
 const mk = (o: Partial<Parameters<typeof createClient>[0]> = {}) =>
@@ -96,7 +96,19 @@ describe('batching, retry, beacon, reset', () => {
     await vi.advanceTimersByTimeAsync(60_000);
     await p;
     expect(sent).toHaveLength(5);
+    expect(new Set(sent.map((s) => s.key)).size).toBe(1); // every retry of the batch carries the same Idempotency-Key
+    expect(sent[0]!.key).toMatch(/^[0-9a-f-]{36}$/);
     expect(c.debug.events()).toHaveLength(1);
+  });
+
+  it('gives each batch its own Idempotency-Key', async () => {
+    const c = mk({ consentMode: 'none' });
+    c.track('a');
+    await c.flush();
+    c.track('b');
+    await c.flush();
+    expect(sent).toHaveLength(2);
+    expect(sent[0]!.key).not.toBe(sent[1]!.key);
   });
 
   it('does not retry 4xx', async () => {
