@@ -26,7 +26,7 @@ export function createTransport(endpoint: string, siteKey: string, onError: (e: 
       }
       return false;
     },
-    // sendBeacon cannot set headers, so the key travels as ?k= and the body is text/plain (no CORS preflight).
+    // sendBeacon cannot set headers (so no Idempotency-Key either), so the key travels as ?k= and the body is text/plain (no CORS preflight).
     beacon: (path, body) => navigator.sendBeacon?.(`${url(path)}?k=${encodeURIComponent(siteKey)}`, new Blob([JSON.stringify(body)], { type: 'text/plain' })) ?? false,
   };
 }

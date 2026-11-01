@@ -74,7 +74,7 @@ export function createWebInApp(o: WebInAppOptions) {
 
   const report = (m: InAppMessage, type: 'impression' | 'click' | 'dismiss', button?: string) =>
     void fetch(`${base}/client/in-app-events?company_id=${encodeURIComponent(o.siteKey)}`, {
-      method: 'POST', keepalive: true, headers: auth,
+      method: 'POST', keepalive: true, headers: { ...auth, 'idempotency-key': crypto.randomUUID() },
       body: JSON.stringify({ events: [{ messageId: m.id, variant: m.variant, type, platform: 'web', sessionId: sid, ...(button ? { button } : {}) }], profile: who() }),
     }).catch(() => undefined);
 

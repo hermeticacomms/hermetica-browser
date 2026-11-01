@@ -2,7 +2,7 @@
 /// <reference lib="dom" />
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createWebInApp, renderMessage, sanitizeHtml, type InAppMessage } from './inapp.ts';
-import { pushTokenBody } from './push.ts';
+import { pushTokenBody, unsubscribeWebPush } from './push.ts';
 
 const msg = (over: Partial<InAppMessage> = {}): InAppMessage => ({
   id: '0190c9a0-0000-7000-8000-000000000001', variant: 'a', layout: 'modal',
@@ -38,11 +38,11 @@ describe('renderMessage', () => {
 });
 
 describe('createWebInApp', () => {
-  const calls: { url: string; body?: any }[] = [];
+  const calls: { url: string; body?: any; key?: string }[] = [];
   beforeEach(() => {
     calls.length = 0;
     vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
-      calls.push({ url, body: init?.body ? JSON.parse(init.body as string) : undefined });
+      calls.push({ url, body: init?.body ? JSON.parse(init.body as string) : undefined, key: (init?.headers as Record<string, string> | undefined)?.['idempotency-key'] });
       return new Response(JSON.stringify({ items: url.includes('/client/in-app-messages') ? [msg()] : [] }), { status: 200 });
     }));
   });
@@ -56,9 +56,30 @@ describe('createWebInApp', () => {
     expect(calls[0]!.url).toContain('anonymous_id=anon-1');
     expect(calls.find((c) => c.url.includes('in-app-events'))!.body.events[0]).toMatchObject({ type: 'impression', platform: 'web' });
   });
+  it('sends an Idempotency-Key on each event POST, a fresh one per report', async () => {
+    const hm = createWebInApp({ siteKey: 'pk', endpoint: 'https://api.test', anonymousId: () => 'anon-1' });
+    await hm.trigger();
+    document.querySelector<HTMLButtonElement>('[data-hermetica-inapp] button[aria-label="Close"]')!.click();
+    const keys = calls.filter((c) => c.url.includes('in-app-events')).map((c) => c.key);
+    expect(keys).toHaveLength(2); // impression + dismiss
+    expect(keys.every((k) => typeof k === 'string' && k.length > 0)).toBe(true);
+    expect(new Set(keys).size).toBe(2);
+  });
   it('does nothing without any identity', async () => {
     await createWebInApp({ siteKey: 'pk', endpoint: 'https://api.test', anonymousId: () => null }).trigger();
     expect(calls).toHaveLength(0);
+  });
+});
+
+describe('push token POSTs', () => {
+  afterEach(() => vi.unstubAllGlobals());
+  it('unregister carries an Idempotency-Key', async () => {
+    const posted: Record<string, string>[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (_u: string, init: RequestInit) => { posted.push(init.headers as Record<string, string>); return new Response('{}', { status: 202 }); }));
+    const sub = { toJSON: () => ({ endpoint: 'https://push.test/x' }), unsubscribe: vi.fn(async () => true) };
+    vi.stubGlobal('navigator', { serviceWorker: { getRegistration: async () => ({ pushManager: { getSubscription: async () => sub } }) } });
+    expect(await unsubscribeWebPush({ siteKey: 'pk', endpoint: 'https://api.test' })).toBe(true);
+    expect(posted[0]!['idempotency-key']).toMatch(/^[0-9a-f-]{36}$/);
   });
 });
 

@@ -34,7 +34,7 @@ export function pushTokenBody(o: WebPushOptions, token: string, status: 'AUTHORI
 }
 
 const post = (o: WebPushOptions, path: string, body: unknown) =>
-  fetch(`${base(o)}${path}?company_id=${encodeURIComponent(o.siteKey)}`, { method: 'POST', keepalive: true, headers: { 'content-type': 'application/json', authorization: `Bearer ${o.siteKey}` }, body: JSON.stringify(body) });
+  fetch(`${base(o)}${path}?company_id=${encodeURIComponent(o.siteKey)}`, { method: 'POST', keepalive: true, headers: { 'content-type': 'application/json', authorization: `Bearer ${o.siteKey}`, 'idempotency-key': crypto.randomUUID() }, body: JSON.stringify(body) });
 
 /** Asks permission, subscribes this browser and registers the subscription. Resolves false when unsupported, denied, or the server has no push config. */
 export async function subscribeWebPush(o: WebPushOptions): Promise<boolean> {

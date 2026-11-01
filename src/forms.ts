@@ -120,13 +120,13 @@ function mount(f: OnSiteForm, host: HTMLElement, deps: FormsDeps, close: (submit
       for (const x of form.querySelectorAll<HTMLInputElement>('input[type=file]')) { // upload first; the answer is the returned URL
         if (!x.files?.[0]) continue;
         const fd = new FormData(); fd.append('field', x.name); fd.append('file', x.files[0]);
-        const u = await fetch(`${ep}/upload`, { method: 'POST', headers: auth, body: fd });
+        const u = await fetch(`${ep}/upload`, { method: 'POST', headers: { ...auth, 'idempotency-key': crypto.randomUUID() }, body: fd });
         const uj = await u.json() as { url?: string; error?: { message?: string } };
         if (!u.ok || !uj.url) return fail(uj.error?.message ?? 'Upload failed');
         data[x.name] = uj.url;
       }
       const res = await fetch(`${ep}/submit`, {
-        method: 'POST', headers: { ...auth, 'content-type': 'application/json' },
+        method: 'POST', headers: { ...auth, 'content-type': 'application/json', 'idempotency-key': crypto.randomUUID() },
         body: JSON.stringify({ data, startedAt: t0, website: hp.value, ...(tok ? { captchaToken: tok } : {}), pageUrl: location.href, ...(aid ? { anonymousId: aid } : {}) }),
       });
       const j = await res.json() as { spin?: { index: number }; success?: Success; pendingConfirmation?: boolean; error?: { message?: string } };
