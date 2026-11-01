@@ -1,0 +1,54 @@
+{
+  "name": "@hermeticacomms/sdk-browser",
+  "version": "0.1.0",
+  "description": "Hermetica browser SDK: event tracking, forms, web push, in-app messages, ad click ids",
+  "license": "MIT",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/hermeticacomms/hermetica-browser.git"
+  },
+  "homepage": "https://github.com/hermeticacomms/hermetica-browser#readme",
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/types/index.d.ts",
+      "default": "./dist/hermetica.esm.js"
+    },
+    "./push": {
+      "types": "./dist/types/push.d.ts",
+      "default": "./dist/push.esm.js"
+    },
+    "./inapp": {
+      "types": "./dist/types/inapp.d.ts",
+      "default": "./dist/inapp.esm.js"
+    },
+    "./ads": {
+      "types": "./dist/types/ads.d.ts",
+      "default": "./dist/ads.esm.js"
+    },
+    "./sw": "./sw/hermetica-sw.js"
+  },
+  "unpkg": "./dist/hermetica.js",
+  "jsdelivr": "./dist/hermetica.js",
+  "files": [
+    "dist",
+    "sw"
+  ],
+  "sideEffects": false,
+  "scripts": {
+    "build": "node build.mjs && tsc -p tsconfig.json",
+    "size": "node size.mjs",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.2",
+    "happy-dom": "^21.0.4",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.5"
+  }
+}
