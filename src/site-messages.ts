@@ -26,7 +26,8 @@ export async function startSiteMessages(deps: FormsDeps): Promise<void> {
   }
   const persist = deps.allowed(), views = persist ? Number(deps.get('hm_pv') ?? 1) : 1;
   const visit = { path: location.pathname, mobile: matchMedia('(pointer:coarse)').matches || innerWidth < 768, returning: views > 1, pageViews: views, now: Date.now(), ...firstTouch(deps, persist), cart: cartState(), productPage: isProductPage(document), flags };
-  const m = messages.toSorted((a, b) => Number(b.queued) - Number(a.queued)).find((x) => {
+  // oxlint-disable-next-line unicorn/no-array-sort -- the SDK targets es2022 browsers, which lack toSorted
+  const m = [...messages].sort((a, b) => Number(b.queued) - Number(a.queued)).find((x) => {
     const last = deps.get(`hm_m_${x.id}`);
     return eligible(x.targeting ?? {}, { ...visit, lastClosedAt: last ? Number(last) : undefined, submitted: false }) && !(last && x.targeting?.frequencyDays === undefined);
   });
