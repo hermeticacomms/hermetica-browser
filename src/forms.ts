@@ -1,5 +1,5 @@
 /// <reference lib="dom" />
-import { arm, eligible, type Targeting } from './targeting.ts';
+import { type Flags, arm, eligible, isProductPage, needsFlags, type Targeting } from './targeting.ts';
 import type { Client } from './types.ts';
 
 interface Cond { field: string; op: string; value: string }
@@ -8,7 +8,7 @@ interface Theme { primary: string; background: string; text: string; radius: num
 interface Success { type: string; text?: string; title?: string; url?: string; code?: string }
 export interface OnSiteForm {
   id: string; kind: string; versionId: string; targeting: Targeting;
-  definition: { captcha?: { provider: string; siteKey: string }; redirects?: { error?: string }; spin?: { segments: unknown[] }; teaser?: { text: string; side: string }; countdown?: { to: string; label: string; expiredText: string }; steps: { title?: string; fields: Field[] }[]; success: Success; theme?: Theme; minFillMs?: number };
+  definition: { submitLabel?: string; failureText?: string; captcha?: { provider: string; siteKey: string }; redirects?: { error?: string }; spin?: { segments: unknown[] }; teaser?: { text: string; side: string }; countdown?: { to: string; label: string; expiredText: string }; steps: { title?: string; fields: Field[] }[]; success: Success; theme?: Theme; minFillMs?: number };
 }
 export interface FormsDeps {
   client: Client; endpoint: string; siteKey: string;
@@ -18,7 +18,11 @@ export interface FormsDeps {
 const HEX = /^#[0-9a-f]{3,8}$/i;
 const FONTS: Record<string, string> = { system: 'system-ui,sans-serif', serif: 'Georgia,serif', mono: 'ui-monospace,monospace' };
 const SEEN = 'hm_pv';
-const CAP: Record<string, [string, string]> = { turnstile: ['challenges.cloudflare.com/turnstile/v0', 'turnstile'], hcaptcha: ['js.hcaptcha.com/1', 'hcaptcha'], recaptcha: ['www.google.com/recaptcha', 'grecaptcha'] };
+const CAP: Record<string, [string, string]> = { turnstile: ['challenges.cloudflare.com/turnstile/v0', 'turnstile'], hcaptcha: ['js.hcaptcha.com/1', 'hcaptcha'], recaptcha: ['www.google.com/recaptcha', 'grecaptcha'], friendlycaptcha: ['cdn.jsdelivr.net/npm/friendly-challenge@0.9.18', 'friendlyChallenge'] };
+/** Cart state the site reports with `client.forms.setCart` (cart targeting rules). */
+let cart: { value: number; items: number } | undefined;
+export const cartState = () => cart;
+export const setCart = (c: { value: number; items: number }) => { cart = { value: Math.max(0, Number(c.value) || 0), items: Math.max(0, Math.floor(Number(c.items) || 0)) }; };
 const W = window as unknown as Record<string, { render(e: HTMLElement, o: object): void; ready?(f: () => void): void; reset?(): void } | undefined>;
 const list = (v: unknown): string[] => [v].flat().filter((x) => x !== undefined && x !== false && x !== '').map(String);
 /** Same rules the server applies to form conditions (it re-checks on submit). */
@@ -40,8 +44,17 @@ function h<K extends keyof HTMLElementTagNameMap>(tag: K, props: Record<string, 
   return el;
 }
 
-function fieldEl(f: Field): HTMLElement {
+function fieldEl(f: Field, suggest: (q: string) => Promise<string[]>): HTMLElement {
   const req = !!f.required;
+  if (f.type === 'password') return h('label', {}, f.label ?? '', h('input', { type: 'password', name: f.key, required: req, autocomplete: 'new-password' }));
+  if (f.type === 'company') { // names-only suggestions from the site-key endpoint; free text still counts
+    const id = `hm-co-${f.key}-${Math.random().toString(36).slice(2, 8)}`, dl = h('datalist', { id });
+    const input = h('input', { type: 'text', name: f.key, required: req, autocomplete: 'organization' });
+    input.setAttribute('list', id);
+    let t: ReturnType<typeof setTimeout> | undefined;
+    input.addEventListener('input', () => { clearTimeout(t); const q = input.value.trim(); if (q.length < 2) return; t = setTimeout(() => void suggest(q).then((n) => dl.replaceChildren(...n.map((v) => h('option', { value: v })))), 250); });
+    return h('label', {}, f.label ?? '', input, dl);
+  }
   if (f.type === 'freetext') return h(f.style === 'heading' ? 'strong' : 'p', {}, (f.text ?? '').replace(/<[^>]*>/g, ''));
   if (f.type === 'textarea') return h('label', {}, f.label ?? '', h('textarea', { name: f.key, required: req }));
   if (f.type === 'hidden') return h('input', { type: 'hidden', name: f.key, value: f.value ?? '' });
@@ -61,7 +74,7 @@ function fieldEl(f: Field): HTMLElement {
 function collect(root: HTMLElement): Record<string, unknown> {
   const d: Record<string, unknown> = {};
   for (const el of root.querySelectorAll<HTMLInputElement>('[name]')) {
-    if (el.name === 'website' || el.type === 'file' || el.disabled || el.name.endsWith('-response')) continue;
+    if (el.name === 'website' || el.type === 'file' || el.disabled || el.name.endsWith('-response') || el.name.endsWith('-solution')) continue;
     if (el.closest('.grp')) { if (el.checked) { if (el.type === 'radio') d[el.name] = el.value; else ((d[el.name] ??= []) as string[]).push(el.value); } continue; }
     d[el.name] = el.type === 'checkbox' ? el.checked : el.value;
   }
@@ -80,7 +93,8 @@ function mount(f: OnSiteForm, host: HTMLElement, deps: FormsDeps, close: (submit
   let i = 0;
   const err = h('p', { className: 'err', role: 'alert' });
   const rows: [Field, HTMLElement][] = [];
-  const steps = def.steps.map((s) => h('fieldset', {}, ...(s.title ? [h('strong', {}, s.title)] : []), ...s.fields.map((x) => { const e = fieldEl(x); rows.push([x, e]); return e; })));
+  const suggest = async (q: string): Promise<string[]> => { try { const r = await fetch(`${deps.endpoint.replace(/\/$/, '')}/ingest/v1/forms/${f.id}/companies?q=${encodeURIComponent(q)}`, { headers: auth }); return r.ok ? ((await r.json()) as { items: string[] }).items : []; } catch { return []; } };
+  const steps = def.steps.map((s) => h('fieldset', {}, ...(s.title ? [h('strong', {}, s.title)] : []), ...s.fields.map((x) => { const e = fieldEl(x, suggest); rows.push([x, e]); return e; })));
   const box = h('div');
   const hp = h('input', { name: 'website', tabIndex: -1, autocomplete: 'off' });
   const next = h('button', { type: 'button' }), back = h('button', { type: 'button' }, 'Back');
@@ -88,7 +102,10 @@ function mount(f: OnSiteForm, host: HTMLElement, deps: FormsDeps, close: (submit
   const body = h('div', { className: 'box', role: 'dialog', ariaLabel: 'Sign up' }, ...(def.theme?.logoUrl && def.theme.logoUrl.startsWith('https:') ? [h('img', { src: def.theme.logoUrl, alt: '' })] : []), form);
   const cap = def.captcha && CAP[def.captcha.provider];
   let tok = '';
-  if (cap && def.captcha) { // explicit render: the widget lives inside the form's shadow root
+  if (cap && def.captcha?.provider === 'friendlycaptcha') { // proof-of-work puzzle: the widget instance reports the solution
+    const FC = () => new (window as unknown as { friendlyChallenge: { WidgetInstance: new (e: HTMLElement, o: object) => unknown } }).friendlyChallenge.WidgetInstance(box, { sitekey: def.captcha!.siteKey, doneCallback: (t: string) => (tok = t) });
+    if ((window as unknown as Record<string, unknown>).friendlyChallenge) FC(); else document.head.append(h('script', { src: `https://${cap[0]}/widget.min.js`, async: true, onload: FC }));
+  } else if (cap && def.captcha) { // explicit render: the widget lives inside the form's shadow root
     const [u, g] = cap, draw = () => W[g]!.render(box, { sitekey: def.captcha!.siteKey, callback: (t: string) => (tok = t), 'expired-callback': () => (tok = '') });
     if (W[g]?.render) draw(); else document.head.append(h('script', { src: `https://${u}/api.js?render=explicit`, async: true, onload: () => (W[g]!.ready ? W[g]!.ready!(draw) : draw()) }));
   }
@@ -105,14 +122,14 @@ function mount(f: OnSiteForm, host: HTMLElement, deps: FormsDeps, close: (submit
     const iv = setInterval(() => { tk(); if (!host.isConnected) clearInterval(iv); }, 1000); tk(); body.prepend(p);
   }
   if (f.kind !== 'embed') body.prepend(h('button', { className: 'x', type: 'button', ariaLabel: 'Close', onclick: () => close(false) }, '×'));
-  const show = () => { steps.forEach((s, n) => (s.hidden = n !== i)); back.hidden = i === 0; next.textContent = i === steps.length - 1 ? 'Submit' : 'Next'; next.type = i === steps.length - 1 ? 'submit' : 'button'; };
+  const show = () => { steps.forEach((s, n) => (s.hidden = n !== i)); back.hidden = i === 0; next.textContent = i === steps.length - 1 ? def.submitLabel ?? 'Submit' : 'Next'; next.type = i === steps.length - 1 ? 'submit' : 'button'; };
   next.addEventListener('click', () => { if (i < steps.length - 1) { const bad = [...steps[i]!.querySelectorAll<HTMLInputElement>('input,select')].find((x) => !x.checkValidity()); if (bad) bad.reportValidity(); else { i++; show(); } } });
   back.addEventListener('click', () => { i--; show(); });
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
     if (cap && !tok) { err.textContent = 'Please complete the captcha'; return; }
     next.disabled = true;
-    const fail = (m: string) => { err.textContent = m; next.disabled = false; if (cap) { tok = ''; W[cap[1]!]?.reset?.(); } };
+    const fail = (m: string) => { err.textContent = def.failureText ?? m; next.disabled = false; if (cap) { tok = ''; W[cap[1]!]?.reset?.(); } };
     try {
       const aid = deps.client.anonymousId();
       const ep = `${deps.endpoint.replace(/\/$/, '')}/ingest/v1/forms/${f.id}`;
@@ -167,6 +184,16 @@ export async function startForms(deps: FormsDeps): Promise<void> {
   } catch { return; }
   const persist = deps.allowed();
   let views = persist ? Number(deps.get(SEEN) ?? 0) : 0;
+  const touch = firstTouch(deps, persist);
+  // Audience rules need the visitor's membership booleans; fetched once, only when a form uses them.
+  let flags: Flags | undefined;
+  if (forms.some((f) => needsFlags(f.targeting ?? {}))) {
+    try {
+      const aid = deps.client.anonymousId();
+      const r = await fetch(`${deps.endpoint.replace(/\/$/, '')}/ingest/v1/forms/visitor${aid ? `?aid=${encodeURIComponent(aid)}` : ''}`, { headers: { authorization: `Bearer ${deps.siteKey}` } });
+      if (r.ok) flags = (await r.json()) as Flags;
+    } catch { /* rules that need flags stay closed */ }
+  }
   const mobile = matchMedia('(pointer:coarse)').matches || innerWidth < 768;
   const shown = new Set<string>(); // memory fallback so a form shows once per page load even without consent
   let disposers: (() => void)[] = [];
@@ -181,7 +208,7 @@ export async function startForms(deps: FormsDeps): Promise<void> {
     for (const f of forms) {
       const t = f.targeting ?? {};
       const last = deps.get(`hm_c_${f.id}`);
-      if (shown.has(f.id) || !eligible(t, { path: location.pathname, mobile, returning: views > 1, pageViews: views, now: Date.now(), lastClosedAt: last ? Number(last) : undefined, submitted: deps.get(`hm_s_${f.id}`) === '1' })) continue;
+      if (shown.has(f.id) || !eligible(t, { path: location.pathname, mobile, returning: views > 1, pageViews: views, now: Date.now(), lastClosedAt: last ? Number(last) : undefined, submitted: deps.get(`hm_s_${f.id}`) === '1', ...touch, cart, productPage: isProductPage(document), flags })) continue;
       disposers.push(arm(f.kind === 'embed' ? {} : t, mobile, () => {
         const host = f.kind === 'embed' ? document.querySelector<HTMLElement>(`[data-hm-form="${f.id}"]`) : document.body.appendChild(h('div'));
         if (!host || shown.has(f.id)) return;
@@ -200,4 +227,18 @@ export async function startForms(deps: FormsDeps): Promise<void> {
   }
   addEventListener('popstate', run);
   run();
+}
+
+/** First-touch UTM values and referrer host of the visit; kept (with consent) so later pages of the same visit still match. */
+export function firstTouch(deps: Pick<FormsDeps, 'get' | 'set'>, persist: boolean): { utm: Record<string, string>; referrer: string } {
+  const saved = persist ? deps.get('hm_ft') : null;
+  if (saved) { try { return JSON.parse(saved) as { utm: Record<string, string>; referrer: string }; } catch { /* rebuilt below */ } }
+  const q = new URLSearchParams(location.search);
+  const utm: Record<string, string> = {};
+  for (const k of ['source', 'medium', 'campaign']) { const v = q.get(`utm_${k}`); if (v) utm[k] = v.slice(0, 100); }
+  let referrer = '';
+  try { const r = document.referrer ? new URL(document.referrer).hostname : ''; referrer = r === location.hostname ? '' : r; } catch { /* no referrer */ }
+  const out = { utm, referrer };
+  if (persist) deps.set('hm_ft', JSON.stringify(out));
+  return out;
 }

@@ -30,6 +30,18 @@
       "types": "./dist/types/ads.d.ts",
       "default": "./dist/ads.esm.js"
     },
+    "./reviews": {
+      "types": "./dist/types/reviews.d.ts",
+      "default": "./dist/reviews.esm.js"
+    },
+    "./app-push": {
+      "types": "./dist/types/app-push.d.ts",
+      "default": "./dist/app-push.esm.js"
+    },
+    "./hybrid": {
+      "types": "./dist/types/hybrid.d.ts",
+      "default": "./dist/hybrid.esm.js"
+    },
     "./sw": "./sw/hermetica-sw.js"
   },
   "unpkg": "./dist/hermetica.js",

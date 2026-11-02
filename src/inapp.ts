@@ -12,6 +12,8 @@ export interface WebInAppOptions {
   /** Pass `client.anonymousId` from the core client (null before analytics consent: nothing is fetched then). */
   anonymousId: () => string | null;
   identity?: () => { externalId?: string; email?: string; phoneNumber?: string };
+  /** Which platform's messages to show: web (default), or ios / android inside a hybrid app's WebView. */
+  platform?: 'web' | 'ios' | 'android';
   /** Runs for `event` buttons (track the named event) and for links before they open; return false to stop the default link handling. */
   onAction?: (action: 'deep_link' | 'url' | 'event', value: string, message: InAppMessage) => boolean | void;
 }
@@ -75,7 +77,7 @@ export function createWebInApp(o: WebInAppOptions) {
   const report = (m: InAppMessage, type: 'impression' | 'click' | 'dismiss', button?: string) =>
     void fetch(`${base}/client/in-app-events?company_id=${encodeURIComponent(o.siteKey)}`, {
       method: 'POST', keepalive: true, headers: { ...auth, 'idempotency-key': crypto.randomUUID() },
-      body: JSON.stringify({ events: [{ messageId: m.id, variant: m.variant, type, platform: 'web', sessionId: sid, ...(button ? { button } : {}) }], profile: who() }),
+      body: JSON.stringify({ events: [{ messageId: m.id, variant: m.variant, type, platform: o.platform ?? 'web', sessionId: sid, ...(button ? { button } : {}) }], profile: who() }),
     }).catch(() => undefined);
 
   function display(m: InAppMessage): void {
@@ -101,7 +103,7 @@ export function createWebInApp(o: WebInAppOptions) {
   async function trigger(t: InAppTriggerArg = { type: 'page_url' }): Promise<InAppMessage[]> {
     const id = who();
     if (!id.anonymousId && !id.externalId && !id.email && !id.phoneNumber) return [];
-    const q = new URLSearchParams({ company_id: o.siteKey, platform: 'web', trigger: t.type, session_id: sid });
+    const q = new URLSearchParams({ company_id: o.siteKey, platform: o.platform ?? 'web', trigger: t.type, session_id: sid });
     if ('name' in t) q.set('name', t.name);
     if (t.type === 'page_url') q.set('url', t.url ?? location.href);
     if (t.type === 'event' && t.properties) q.set('properties', JSON.stringify(t.properties));

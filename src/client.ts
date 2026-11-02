@@ -1,7 +1,9 @@
 /// <reference lib="dom" />
 import { startAutocapture } from './autocapture.ts';
 import { startVideoTracking } from './video.ts';
-import { startForms } from './forms.ts';
+import { setCart, startForms } from './forms.ts';
+import { readPlatformCart } from './cart.ts';
+import { startSiteMessages } from './site-messages.ts';
 import { createStore } from './storage.ts';
 import { createTransport } from './transport.ts';
 import type { Client, ClientOptions, Consent, QueuedEvent } from './types.ts';
@@ -99,7 +101,8 @@ export function createClient(opts: ClientOptions): Client {
   if (opts.autocapture && typeof document !== 'undefined') startAutocapture((n, p) => enqueue(n, p));
   if (opts.trackVideo && typeof document !== 'undefined') startVideoTracking((n, p) => enqueue(n, p));
 
-  const forms = { start: () => startForms({ client: api, endpoint: opts.endpoint, siteKey: opts.siteKey, get: store.get, set: store.set, allowed: () => decided && consent.analytics }) };
+  const formDeps = () => ({ client: api, endpoint: opts.endpoint, siteKey: opts.siteKey, get: store.get, set: store.set, allowed: () => decided && consent.analytics });
+  const forms = { start: async () => { if (opts.cart) await readPlatformCart(opts.cart, setCart); await Promise.all([startForms(formDeps()), startSiteMessages(formDeps())]); }, setCart };
   const api: Client = {
     forms,
     track: (name, props = {}, o = {}) => enqueue(name, props, { ...(o.value !== undefined ? { value: o.value } : {}), ...(o.currency ? { currency: o.currency } : {}), ...(o.dedupeKey ? { dedupeKey: o.dedupeKey } : {}) }),
