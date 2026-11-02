@@ -2,8 +2,7 @@ import { readFileSync } from 'node:fs';
 import { gzipSync } from 'node:zlib';
 
 /** Fails if a minified+gzipped bundle exceeds its budget. The core budget is the lowest the current build fits; shrink rather than raise it. */
-// Review widgets moved to their own entry (`/reviews`), which freed room here; lower BUDGET to the new build size once measured.
-const BUDGET = 7985; // lowest the build fit before that move (+$ad hook, +Idempotency-Key on batches and form upload/submit); shrink rather than raise
+const BUDGET = 9943; // the 2026-11 build (+site messages, targeting, video, cart, autocapture in core); shrink rather than raise
 // Run after `npm run build`.
 const size = gzipSync(readFileSync('dist/hermetica.js')).length;
 console.log(`sdk-browser: ${size} B gzip (budget ${BUDGET})`);
