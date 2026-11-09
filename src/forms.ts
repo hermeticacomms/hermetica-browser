@@ -29,7 +29,7 @@ export const cartState = () => cart;
 /** Re-checks forms with cart rules on this page (set by `startForms`), so a cart change can open one without a reload. */
 let onCart: (() => void) | undefined;
 export const setCart = (c: { value: number; items: number }) => { cart = { value: Math.max(0, Number(c.value) || 0), items: Math.max(0, Math.floor(Number(c.items) || 0)) }; onCart?.(); };
-const W = window as unknown as Record<string, { render(e: HTMLElement, o: object): void; ready?(f: () => void): void; reset?(): void } | undefined>;
+const W = globalThis as unknown as Record<string, { render(e: HTMLElement, o: object): void; ready?(f: () => void): void; reset?(): void } | undefined>;
 const list = (v: unknown): string[] => [v].flat().filter((x) => x !== undefined && x !== false && x !== '').map(String);
 /** Same rules the server applies to form conditions (it re-checks on submit). */
 const holds = (w: Cond[] = [], d: Record<string, unknown>) => w.every((c) => { const s = list(d[c.field]); return c.op === 'filled' ? !!s.length : c.op === 'empty' ? !s.length : c.op === 'neq' ? !s.includes(c.value) : c.op === 'contains' ? s.some((x) => x.toLowerCase().includes(c.value.toLowerCase())) : s.includes(c.value); });
