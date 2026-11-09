@@ -34,7 +34,7 @@ describe('createAppPush', () => {
     expect(f).toHaveBeenCalledTimes(1);
   });
 
-  it('tracks opens and deliveries of Hermetica messages and returns the deep link', () => {
+  it('tracks opens and deliveries of Hermeticor messages and returns the deep link', () => {
     const track = vi.fn();
     const push = createAppPush(opts(track));
     expect(push.opened({ notification: { data: { hermetica_message_id: 'm1', deep_link: 'shop://sale' } } })).toBe('shop://sale');

@@ -2,6 +2,12 @@
 
 Core tracker: `import { createClient } from '@hermeticacomms/sdk-browser'`. Opt-in entries (`/push`, `/inapp`, `/ads`, `/reviews`, `/app-push`, `/hybrid`) are separate bundles with their own gzip budgets in `size.mjs`.
 
+Install: `npm i @hermeticacomms/sdk-browser`, or from GitHub with `npm i github:hermeticacomms/hermetica-browser` (its `prepare` script builds `dist/`).
+
+Privacy options: `consentMode: 'require-consent'` (default) drops events tracked before the visitor decides, unless `bufferUntilConsent: true`; `beforeSend(event) => event | null` edits or drops any event; `stripQuery: true` / `allowParams: ['ref']` keep tokens and emails in URLs out of `context.page`. Failed sends fire `error` (4xx carry `status` and are not retried); `hm.debug.lastError()` returns the last one.
+
+Site settings: `remoteConfig: true` applies the settings saved on the Sites screen (consent mode for the visitor's region, automatic page views and `pageViewRoutes`, URL cleaning, `identify` rules, batching) to every option not passed in code; calls wait up to 3 s for them. `hm.debug.test()` checks the queued events against the server's schema and consent rules without storing them.
+
 ## Ad click ids (`@hermeticacomms/sdk-browser/ads`)
 
 Captures ad click ids so server-side conversion forwarding (Meta CAPI, Google, TikTok, Snapchat, Pinterest) matches better. Off by default.
@@ -27,3 +33,20 @@ events no longer download them.
 For apps whose UI runs in a WebView (Capacitor, Cordova): registers the native APNs/FCM token from the app's push plugin with
 the profile and tracks notification opens. `/hybrid` (`createHybridClient`) bundles it with the core tracker and in-app messages for
 the app's platform; the Capacitor and Cordova SDKs wrap it and wire their push plugins.
+
+## Cart events and abandoned carts
+
+Track the standard cart events with `track`; once the visitor is identified (`identify`, a form sign-up), the cart they built in
+the browser becomes a server cart and, after an hour without changes, a `cart_abandoned` event for the Abandoned cart flows.
+A cart the store platform also reports (Shopify checkout, API cart) or an order placed since wins, so a shopper gets one message.
+
+```js
+hm.track('add_to_cart', { productId: 'P1', variantId: 'V2', title: 'Mug', quantity: 1, priceMinor: 1200 }, { value: 1200, currency: 'USD' });
+hm.track('remove_from_cart', { productId: 'P1', variantId: 'V2' });
+hm.track('cart_updated', { productId: 'P1', variantId: 'V2', quantity: 3, priceMinor: 1200 }); // quantity 0 removes
+hm.track('checkout_started', { cart: { currency: 'USD', recoveryUrl: 'https://shop.test/cart', lines: [/* items as above */] } });
+hm.track('purchase', { orderId: 'O1' }, { value: 3600, currency: 'USD' }); // closes the cart
+```
+
+A `cart` snapshot (`{ currency, recoveryUrl, lines: [...] }`) on any of these events replaces the whole cart, which is what the
+WordPress plugin sends. `price` in major units is accepted instead of `priceMinor` for two-decimal currencies.

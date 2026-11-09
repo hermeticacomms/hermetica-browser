@@ -1,4 +1,4 @@
-// Hermetica web push service worker. Serve it from your site root and register it with
+// Hermeticor web push service worker. Serve it from your site root and register it with
 // subscribeWebPush() from '@hermetica/sdk-browser/push', which posts the settings (endpoint, public key, anonymous and external id)
 // to this worker; they are kept in IndexedDB so push events work when no page is open.
 /* eslint-env serviceworker */

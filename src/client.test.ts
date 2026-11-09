@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 /// <reference lib="dom" />
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { createClient } from './client.ts';
+import { createClient, resolveSettings, routeAllowed } from './client.ts';
 
 const sent: { url: string; body: any; auth: string; key: string | undefined }[] = [];
 let status = 200;
@@ -27,8 +27,19 @@ describe('formView', () => {
 });
 
 describe('consent gating (scenario 9, client side)', () => {
-  it('sends nothing and writes no storage before consent; flushes after grant', async () => {
+  it('drops events tracked before the consent decision by default (audit item 13)', async () => {
     const c = mk({ storage: 'local' });
+    c.track('a'); c.page();
+    expect(c.debug.events()).toHaveLength(0);
+    c.consent.update({ analytics: true });
+    c.track('b');
+    await c.flush();
+    expect(sent).toHaveLength(1);
+    expect(sent[0]!.body.events.map((e: any) => e.name)).toEqual(['b']);
+  });
+
+  it('bufferUntilConsent: sends nothing and writes no storage before consent; flushes after grant', async () => {
+    const c = mk({ storage: 'local', bufferUntilConsent: true });
     c.track('a'); c.page();
     await c.flush();
     expect(sent).toHaveLength(0);
@@ -43,7 +54,7 @@ describe('consent gating (scenario 9, client side)', () => {
   });
 
   it('drops queued events when consent is denied', async () => {
-    const c = mk();
+    const c = mk({ bufferUntilConsent: true });
     c.track('a');
     c.consent.update({ analytics: false });
     c.track('b');
@@ -53,7 +64,7 @@ describe('consent gating (scenario 9, client side)', () => {
   });
 
   it('caps the pre-consent queue at 50, dropping the oldest', () => {
-    const c = mk();
+    const c = mk({ bufferUntilConsent: true });
     for (let i = 0; i < 60; i++) c.track(`e${i}`);
     expect(c.debug.events()).toHaveLength(50);
     expect(c.debug.events()[0]!.name).toBe('e10');
@@ -111,12 +122,27 @@ describe('batching, retry, beacon, reset', () => {
     expect(sent[0]!.key).not.toBe(sent[1]!.key);
   });
 
-  it('does not retry 4xx', async () => {
-    status = 403;
+  it('does not retry 4xx, emits error with the status and keeps it in debug.lastError()', async () => {
     const c = mk({ consentMode: 'none' });
-    c.track('a');
-    await c.flush();
-    expect(sent).toHaveLength(1);
+    const errors: any[] = [];
+    c.on('error', (e) => errors.push(e));
+    const flushed: any[] = [];
+    c.on('flush', (b) => flushed.push(b));
+    expect(c.debug.lastError()).toBeNull();
+    for (const code of [401, 403]) {
+      status = code;
+      fetchMock.mockImplementationOnce(async (url: string, init: RequestInit) => {
+        sent.push({ url, body: JSON.parse(init.body as string), auth: '', key: undefined });
+        return new Response(JSON.stringify({ error: { code: 'forbidden', message: 'Origin not allowed' } }), { status: code });
+      });
+      c.track('a');
+      await c.flush();
+    }
+    expect(sent).toHaveLength(2);
+    expect(errors.map((e) => e.status)).toEqual([401, 403]); // only the refusal: no extra 'send failed'
+    expect(flushed).toHaveLength(0); // a refused batch is never reported as delivered
+    expect(c.debug.lastError()).toMatchObject({ status: 403, code: 'forbidden', message: 'Origin not allowed' });
+    expect(c.debug.events()).toHaveLength(0);
   });
 
   it('uses sendBeacon on pagehide', () => {
@@ -147,5 +173,92 @@ describe('batching, retry, beacon, reset', () => {
     const c = mk({ consentMode: 'none', autoPageViews: true });
     history.pushState({}, '', '/next');
     expect(c.debug.events().map((e) => e.name)).toEqual(['page_view', 'page_view']);
+  });
+});
+
+describe('beforeSend and URL filtering (audit item 14)', () => {
+  it('beforeSend can change or drop an event; a throwing hook drops it and reports the error', async () => {
+    let n = 0;
+    const c = mk({ consentMode: 'none', beforeSend: (e) => { n++; if (e.name === 'secret') return null; if (e.name === 'boom') throw new Error('hook'); return { ...e, properties: { ...e.properties, tagged: true } }; } });
+    c.track('secret'); c.track('boom'); c.track('ok');
+    expect(n).toBe(3);
+    expect(c.debug.events().map((e) => [e.name, e.properties.tagged])).toEqual([['ok', true]]);
+    expect(c.debug.lastError()).toMatchObject({ message: 'hook' });
+  });
+
+  it('stripQuery drops query and fragment; allowParams keeps only the listed params', () => {
+    (window as unknown as { happyDOM: { setURL(u: string): void } }).happyDOM.setURL('https://shop.test/reset?token=abc&email=a%40b.co&ref=x#frag');
+    const strip = mk({ consentMode: 'none', stripQuery: true });
+    strip.track('a');
+    expect(strip.debug.events()[0]!.context).toMatchObject({ page: { url: 'https://shop.test/reset' } });
+    const allow = mk({ consentMode: 'none', allowParams: ['ref'] });
+    allow.track('a');
+    expect(allow.debug.events()[0]!.context).toMatchObject({ page: { url: 'https://shop.test/reset?ref=x' } });
+    const raw = mk({ consentMode: 'none' });
+    raw.track('a');
+    expect((raw.debug.events()[0]!.context as any).page.url).toContain('token=abc');
+  });
+});
+
+describe('site settings (remoteConfig) and route allowlist', () => {
+  const remote = (settings: Record<string, unknown> | null) => {
+    const posts: { url: string; body: any }[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      if (!init?.method) return settings ? new Response(JSON.stringify(settings), { status: 200 }) : new Response('{}', { status: 500 });
+      posts.push({ url, body: JSON.parse(init.body as string) });
+      return new Response('{"ok":true}', { status: 200 });
+    }));
+    return posts;
+  };
+  const settle = () => new Promise((r) => setTimeout(r, 0));
+
+  it('routeAllowed: empty = all; /shop is the page and below; /blog/* is a prefix', () => {
+    expect(routeAllowed([], '/x')).toBe(true);
+    expect(routeAllowed(['/shop'], '/shop')).toBe(true);
+    expect(routeAllowed(['/shop'], '/shop/boots')).toBe(true);
+    expect(routeAllowed(['/shop'], '/shopping')).toBe(false);
+    expect(routeAllowed(['/blog/*'], '/blog/a')).toBe(true);
+    expect(routeAllowed(['/blog/*'], '/about')).toBe(false);
+  });
+
+  it('resolveSettings: without saved settings the SDK defaults are unchanged; code options win over saved ones', () => {
+    const d = resolveSettings({ siteKey: 'k', endpoint: 'e' });
+    expect(d).toMatchObject({ mode: 'require-consent', maxSize: 20, flushMs: 2000, maxQueue: 200, autoPageViews: false, stripQuery: false, allowParams: undefined });
+    const r = resolveSettings({ siteKey: 'k', endpoint: 'e', batch: { maxSize: 5 } }, { batchSize: 40, flushMs: 500, consentMode: 'opt-out', allowParams: [] });
+    expect(r).toMatchObject({ maxSize: 5, flushMs: 500, mode: 'opt-out', allowParams: undefined });
+  });
+
+  it('holds calls until the settings arrive, then applies consent mode, URL rules and identify rules', async () => {
+    (window as unknown as { happyDOM: { setURL(u: string): void } }).happyDOM.setURL('https://shop.test/shop/boots?token=abc&ref=x');
+    const posts = remote({ consentMode: 'none', autoPageViews: true, pageViewRoutes: ['/shop'], stripQuery: true, allowParams: ['ref'], identify: { email: false, phone: true, externalId: true }, batchSize: 20, flushMs: 10, maxQueue: 200 });
+    const c = createClient({ siteKey: 'hm_pk_x', endpoint: 'https://api.test', storage: 'memory', remoteConfig: true });
+    c.track('early');
+    expect(c.debug.events()).toHaveLength(0); // waiting for the settings
+    await settle(); await settle();
+    expect(c.debug.events().map((e) => e.name)).toEqual(['page_view', 'early']);
+    expect(c.debug.events()[0]!.context).toMatchObject({ page: { url: 'https://shop.test/shop/boots?ref=x' } });
+    history.pushState({}, '', '/about'); // outside the route allowlist: no automatic page view
+    expect(c.debug.events()).toHaveLength(2);
+    c.identify('u1', { email: 'a@b.co' });
+    await c.flush(); await settle();
+    const id = posts.find((p) => p.url.endsWith('/ingest/v1/identify'));
+    expect(id!.body.identifiers).toEqual({ externalId: 'u1' });
+  });
+
+  it('falls back to the safe defaults when the settings cannot be read', async () => {
+    remote(null);
+    const c = createClient({ siteKey: 'hm_pk_x', endpoint: 'https://api.test', storage: 'memory', remoteConfig: true });
+    c.track('a');
+    await settle(); await settle();
+    expect(c.debug.events()).toHaveLength(0); // require-consent default: dropped before a decision
+  });
+
+  it('debug.test posts the queue to the test endpoint', async () => {
+    const posts = remote({});
+    const c = mk({ consentMode: 'none' });
+    c.track('a');
+    expect(await c.debug.test()).toEqual({ ok: true });
+    expect(posts[0]!.url).toBe('https://api.test/ingest/v1/test');
+    expect(posts[0]!.body.events[0].name).toBe('a');
   });
 });

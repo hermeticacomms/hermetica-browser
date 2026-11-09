@@ -80,14 +80,14 @@ export function createAppPush(o: AppPushOptions) {
     register: (t: AppPushToken) => send('/client/push-tokens', appPushTokenBody(o, t, 'push-token')),
     /** The token stops receiving pushes (logout). */
     unregister: (t: AppPushToken) => send('/client/push-token-unregister', appPushTokenBody(o, t, 'push-token-unregister')),
-    /** A notification was tapped: tracks `$opened_push` for Hermetica messages and returns the deep link, or null. */
+    /** A notification was tapped: tracks `$opened_push` for Hermeticor messages and returns the deep link, or null. */
     opened(payload: unknown): string | null {
       const d = pushData(payload);
       const id = str(d['hermetica_message_id']);
       if (id) o.track('$opened_push', { hermetica_message_id: id });
       return str(d['deep_link']) ?? str(d['url']) ?? str(d['hermetica_url']);
     },
-    /** A notification arrived while the app runs: tracks `$received_push` (delivered). True when it was a Hermetica message. */
+    /** A notification arrived while the app runs: tracks `$received_push` (delivered). True when it was a Hermeticor message. */
     received(payload: unknown): boolean {
       const id = messageId(payload);
       if (id) o.track('$received_push', { hermetica_message_id: id });
