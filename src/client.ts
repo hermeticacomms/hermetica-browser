@@ -8,7 +8,7 @@ import { createStore } from './storage.ts';
 import { createTransport } from './transport.ts';
 import type { Client, ClientOptions, Consent, QueuedEvent, RemoteSettings } from './types.ts';
 
-const SDK_VERSION = '0.2';
+const SDK_VERSION = '0.4.0';
 const PRE_CONSENT_CAP = 50;
 const SERVER_MAX_BATCH = 50;
 const KEY_ID = 'hm_aid';

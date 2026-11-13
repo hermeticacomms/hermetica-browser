@@ -8,7 +8,7 @@ export interface WebPushOptions {
   identity?: { externalId?: string; email?: string; phoneNumber?: string; anonymousId?: string };
 }
 
-const SDK_VERSION = '0.2';
+const SDK_VERSION = '0.4.0';
 const opt = (k: string, v: string | undefined): Record<string, string> => (v ? { [k]: v } : {});
 const base = (o: WebPushOptions) => o.endpoint.replace(/\/$/, '');
 

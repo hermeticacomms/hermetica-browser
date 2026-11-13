@@ -50,7 +50,7 @@ export function appPushTokenBody(o: AppPushOptions, t: AppPushToken, type: 'push
       attributes: {
         token: t.token, platform: o.platform, vendor: t.vendor, enablement_status: t.enablementStatus ?? 'AUTHORIZED', background: t.background ?? 'AVAILABLE',
         device_metadata: {
-          device_id: id.anonymousId ?? '', sdk_version: o.sdkVersion ?? 'app-0.1', device_model: d.deviceModel ?? '', os_name: d.osName ?? o.platform, os_version: d.osVersion ?? '',
+          device_id: id.anonymousId ?? '', sdk_version: o.sdkVersion ?? 'app-0.4.0', device_model: d.deviceModel ?? '', os_name: d.osName ?? o.platform, os_version: d.osVersion ?? '',
           app_name: d.appName ?? '', app_version: d.appVersion ?? '', app_build: d.appBuild ?? '', app_id: d.appId ?? '', environment: t.environment ?? 'release',
         },
         profile: { data: { type: 'profile', attributes: { ...opt('email', id.email), ...opt('phone_number', id.phoneNumber), ...opt('external_id', id.externalId), ...opt('anonymous_id', id.anonymousId) } } },
