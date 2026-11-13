@@ -13,6 +13,7 @@ const PRE_CONSENT_CAP = 50;
 const SERVER_MAX_BATCH = 50;
 const KEY_ID = 'hm_aid';
 const KEY_CONSENT = 'hm_consent';
+const KEY_QUEUE = 'hm_queue:';
 const REMOTE_TIMEOUT_MS = 3000;
 const uuid = () => crypto.randomUUID();
 
@@ -69,6 +70,18 @@ export function createClient(opts: ClientOptions): Client {
   let timer: ReturnType<typeof setTimeout> | undefined;
   let aid: string | null = null;
   let inflight: Promise<void> = Promise.resolve();
+  // Unsent consented events (queued or in flight) are kept in localStorage per site, so a reload or a lost beacon does not drop them;
+  // a resend of one the server already took is counted as a duplicate (same dedupeKey). Cookies are too small for this: local only.
+  let sending: QueuedEvent[] = [];
+  const saved = (opts.storage ?? 'local') === 'local' ? store : null;
+  const queueKey = `${KEY_QUEUE}${opts.siteKey}`;
+  const persist = () => {
+    if (!saved) return;
+    try {
+      const keep = decided && consent.analytics ? [...sending, ...queue].slice(-cfg.maxQueue) : [];
+      if (keep.length) saved.set(queueKey, JSON.stringify(keep)); else saved.del(queueKey);
+    } catch { /* storage full or blocked: memory only */ }
+  };
   // remoteConfig: calls made before the site settings arrive wait here (capped), then run with those settings.
   let ready = !opts.remoteConfig;
   const held: (() => void)[] = [];
@@ -112,6 +125,7 @@ export function createClient(opts: ClientOptions): Client {
     if (queue.length > cap) queue.splice(0, queue.length - cap); // drop oldest
     log('queued', ev);
     if (!decided) return;
+    persist();
     if (queue.length >= cfg.maxSize) void flush();
     else timer ??= setTimeout(() => void flush(), cfg.flushMs);
   }
@@ -123,12 +137,16 @@ export function createClient(opts: ClientOptions): Client {
     timer = undefined;
     if (!decided || !consent.analytics || queue.length === 0) return inflight;
     const id = anonymousId();
-    const batch = queue.splice(0, cfg.maxSize).map((e) => ({ ...e, anonymousId: id }));
+    const taken = queue.splice(0, cfg.maxSize);
+    sending.push(...taken);
+    const batch = taken.map((e) => ({ ...e, anonymousId: id }));
     inflight = inflight.then(async () => {
       const ok = await transport.send('/ingest/v1/batch', { events: batch, consent });
+      sending = sending.filter((e) => !taken.includes(e));
       if (ok) emit('flush', batch);
       else if (ok === false) { queue.unshift(...batch); queue.splice(0, queue.length - cfg.maxQueue); fail(new Error('send failed')); }
       // null = refused (4xx): already reported as `error`, dropped, never `flush`. Not awaited: the next batch chains behind this promise.
+      persist();
       if (ok !== false && queue.length) void flush();
     });
     return inflight;
@@ -137,10 +155,13 @@ export function createClient(opts: ClientOptions): Client {
   const pagehide = () => {
     if (!decided || !consent.analytics || queue.length === 0) return;
     const id = anonymousId();
+    const failed: QueuedEvent[] = [];
     while (queue.length) {
-      const events = queue.splice(0, SERVER_MAX_BATCH).map((e) => ({ ...e, anonymousId: id }));
-      transport.beacon('/ingest/v1/batch', { events, consent });
+      const taken = queue.splice(0, SERVER_MAX_BATCH);
+      if (!transport.beacon('/ingest/v1/batch', { events: taken.map((e) => ({ ...e, anonymousId: id })), consent })) failed.push(...taken);
     }
+    queue = failed;
+    persist();
   };
   if (typeof addEventListener === 'function') addEventListener('pagehide', pagehide);
 
@@ -188,11 +209,12 @@ export function createClient(opts: ClientOptions): Client {
         store.set(KEY_CONSENT, JSON.stringify(consent));
         emit('consent', { ...consent });
         if (consent.analytics) void flush();
-        else { queue = []; aid = null; store.del(KEY_ID); } // denied: pre-consent events are dropped, never sent
+        else { queue = []; sending = []; aid = null; store.del(KEY_ID); } // denied: pre-consent events are dropped, never sent
+        persist();
       },
     },
     anonymousId: () => (decided && consent.analytics ? anonymousId() : null),
-    reset() { queue = []; aid = null; store.del(KEY_ID); },
+    reset() { queue = []; sending = []; aid = null; store.del(KEY_ID); persist(); },
     flush,
     on(event, cb) { (listeners[event] ??= []).push(cb as (d: unknown) => void); },
     debug: {
@@ -200,6 +222,19 @@ export function createClient(opts: ClientOptions): Client {
       test: (events) => transport.post('/ingest/v1/test', { events: events ?? (queue.length ? queue : [{ name: 'test_event', properties: { hm_sdk: SDK_VERSION }, context: pageCtx(snap()) }]), consent }),
     },
   };
+
+  /** Events a previous page left unsent go out first; consent withdrawn since then drops them. */
+  function restoreQueue(): void {
+    if (!saved) return;
+    let prior: QueuedEvent[] = [];
+    try { prior = JSON.parse(saved.get(queueKey) ?? '[]'); } catch { /* corrupt: start empty */ }
+    if (!Array.isArray(prior) || !prior.length || !decided || !consent.analytics) { persist(); return; }
+    const seen = new Set(queue.map((e) => e.dedupeKey));
+    const fresh = prior.filter((e) => e && typeof e.name === 'string' && typeof e.dedupeKey === 'string' && !seen.has(e.dedupeKey) && seen.add(e.dedupeKey));
+    queue = [...fresh, ...queue].slice(-cfg.maxQueue);
+    log('restored', fresh.length);
+    timer ??= setTimeout(() => void flush(), cfg.flushMs);
+  }
 
   const settle = (r: Partial<RemoteSettings> | null) => {
     if (ready) return; // a late answer after the timeout is ignored: the defaults are already in force
@@ -210,13 +245,14 @@ export function createClient(opts: ClientOptions): Client {
       log('settings', cfg);
     }
     ready = true;
+    restoreQueue(); // after the site's consent mode is known
     startModules();
     for (const f of held.splice(0)) f();
   };
   if (opts.remoteConfig) {
     setTimeout(() => settle(null), REMOTE_TIMEOUT_MS);
     void transport.get('/ingest/v1/config').then((r) => settle(r as Partial<RemoteSettings> | null), () => settle(null));
-  } else startModules();
+  } else { restoreQueue(); startModules(); }
   if (opts.forms) void forms.start();
   return api;
 }

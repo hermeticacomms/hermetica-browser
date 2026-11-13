@@ -4,7 +4,7 @@ import type { Client } from './types.ts';
 import { LAYOUT_CSS, type Teaser, padForBar, teaserOf, teaserSpot } from './forms-layout.ts';
 
 interface Cond { field: string; op: string; value: string }
-interface Field { type: string; key: string; when?: Cond[]; label?: string; required?: boolean; options?: string[]; value?: string; disclosureText?: string; privacyUrl?: string; text?: string; style?: string; min?: number; max?: number; step?: number; choices?: { label: string; scores?: Record<string, number> }[] }
+interface Field { type: string; key: string; when?: Cond[]; label?: string; required?: boolean; options?: string[]; value?: string; disclosureText?: string; privacyUrl?: string; text?: string; style?: string; min?: number; max?: number; step?: number; choices?: { label: string; display?: string; scores?: Record<string, number> }[]; weight?: number }
 interface Theme { primary: string; background: string; text: string; radius: number; buttonStyle: string; font: string; logoUrl?: string }
 interface Success { type: string; text?: string; title?: string; url?: string; code?: string }
 interface Product { title: string; url: string | null; imageUrl: string | null }
@@ -69,7 +69,8 @@ function fieldEl(f: Field, suggest: (q: string) => Promise<string[]>): HTMLEleme
   if (f.type === 'radio' || f.type === 'checkbox_group' || f.type === 'quiz') {
     const t = f.type === 'checkbox_group' ? 'checkbox' : 'radio';
     const opts = f.type === 'quiz' ? (f.choices ?? []).map((c) => c.label) : f.options ?? [];
-    return h('fieldset', { className: 'grp' }, h('legend', {}, f.label ?? ''), ...opts.map((o) => h('label', {}, h('input', { type: t, name: f.key, value: o, required: req && t === 'radio' }), ` ${o}`)));
+    const shown = (o: string, i: number) => (f.type === 'quiz' ? f.choices?.[i]?.display ?? o : o); // a translated quiz choice still submits its label
+    return h('fieldset', { className: 'grp' }, h('legend', {}, f.label ?? ''), ...opts.map((o, i) => h('label', {}, h('input', { type: t, name: f.key, value: o, required: req && t === 'radio' }), ` ${shown(o, i)}`)));
   }
   if (f.type === 'select') return h('label', {}, f.label ?? '', h('select', { name: f.key, required: req }, h('option', { value: '' }), ...(f.options ?? []).map((o) => h('option', {}, o))));
   // Unknown types (e.g. country) degrade to a text box; the server validates and normalises the answer.
@@ -93,7 +94,7 @@ const go = (u?: string) => !!u && /^https?:/.test(u) && !!(location.href = u);
 /** Same scoring as the server (which scores again on submit): highest total wins, ties go to the outcome listed first. */
 export function quizOutcome(q: Quiz, fields: Field[], d: Record<string, unknown>): Quiz['outcomes'][number] | undefined {
   const t: Record<string, number> = Object.fromEntries(q.outcomes.map((o) => [o.key, 0]));
-  for (const f of fields) for (const [k, n] of Object.entries(f.choices?.find((c) => c.label === d[f.key])?.scores ?? {})) if (k in t) t[k] = t[k]! + n;
+  for (const f of fields) for (const [k, n] of Object.entries(f.choices?.find((c) => c.label === d[f.key])?.scores ?? {})) if (k in t) t[k] = t[k]! + n * (f.weight ?? 1);
   return q.outcomes.reduce<Quiz['outcomes'][number] | undefined>((b, o) => (!b || t[o.key]! > t[b.key]! ? o : b), undefined);
 }
 

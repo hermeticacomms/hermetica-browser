@@ -26,6 +26,7 @@ export interface ClientOptions {
   forms?: boolean;
   /** Read the cart from the store platform for cart targeting rules, so the site need not call `forms.setCart` (`shopify`: the storefront's `/cart.js`). */
   cart?: 'shopify';
+  /** Where the anonymous id and consent live. With `local` (default), events not yet sent (consented ones only) also survive a reload and go out on the next page. */
   storage?: 'local' | 'cookie' | 'memory';
   /**
    * Fetch this site's settings from the Sites screen (GET /ingest/v1/config) and apply them to every option not passed here.

@@ -262,3 +262,59 @@ describe('site settings (remoteConfig) and route allowlist', () => {
     expect(posts[0]!.body.events[0].name).toBe('a');
   });
 });
+
+describe('queue survives a reload (localStorage, per site)', () => {
+  const KEY = 'hm_queue:hm_pk_reload';
+  const local = (o: Partial<Parameters<typeof createClient>[0]> = {}) => mk({ siteKey: 'hm_pk_reload', storage: 'local', consentMode: 'opt-out', batch: { flushMs: 10_000 }, ...o });
+
+  it('keeps unsent consented events and sends them once on the next page', async () => {
+    const first = local();
+    first.track('a'); first.track('b');
+    expect(JSON.parse(localStorage.getItem(KEY)!).map((e: any) => e.name)).toEqual(['a', 'b']);
+    const second = local(); // the reload: a fresh client reads what the first left
+    await second.flush();
+    expect(sent.map((s) => s.body.events.map((e: any) => e.name))).toEqual([['a', 'b']]);
+    expect(localStorage.getItem(KEY)).toBeNull();
+  });
+
+  it('a failed send stays saved; duplicate dedupeKeys are restored once; corrupt data is ignored', async () => {
+    status = 400; // refused for good: dropped, not saved
+    const c = local();
+    c.track('x');
+    await c.flush();
+    expect(localStorage.getItem(KEY)).toBeNull();
+    status = 200;
+    const ev = { name: 'y', properties: {}, dedupeKey: 'k1', occurredAt: new Date().toISOString(), context: {} };
+    localStorage.setItem(KEY, JSON.stringify([ev, ev, { bogus: true }]));
+    sent.length = 0;
+    await local().flush();
+    expect(sent[0]!.body.events.map((e: any) => e.dedupeKey)).toEqual(['k1']);
+    localStorage.setItem(KEY, '{not json');
+    expect(() => local()).not.toThrow();
+  });
+
+  it('never saves events without analytics consent, and denying consent clears what was saved', () => {
+    const pending = mk({ siteKey: 'hm_pk_reload', storage: 'local', bufferUntilConsent: true });
+    pending.track('before');
+    expect(localStorage.getItem(KEY)).toBeNull();
+    const c = local();
+    c.track('a');
+    expect(localStorage.getItem(KEY)).not.toBeNull();
+    c.consent.update({ analytics: false });
+    expect(localStorage.getItem(KEY)).toBeNull();
+  });
+
+  it('cookie and memory storage never persist the queue', () => {
+    local({ storage: 'memory' }).track('a');
+    local({ storage: 'cookie' }).track('b');
+    expect(localStorage.getItem(KEY)).toBeNull();
+  });
+
+  it('events a beacon could not take on pagehide are saved for the next page', () => {
+    vi.stubGlobal('navigator', { sendBeacon: vi.fn(() => false) });
+    const c = local();
+    c.track('leaving');
+    dispatchEvent(new Event('pagehide'));
+    expect(JSON.parse(localStorage.getItem(KEY)!).map((e: any) => e.name)).toEqual(['leaving']);
+  });
+});

@@ -1,6 +1,6 @@
 {
   "name": "@hermeticacomms/sdk-browser",
-  "version": "0.1.1",
+  "version": "0.1.0",
   "description": "Hermetica browser SDK: event tracking, forms, web push, in-app messages, ad click ids",
   "license": "MIT",
   "type": "module",
