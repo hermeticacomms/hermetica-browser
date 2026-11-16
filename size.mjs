@@ -5,7 +5,8 @@ import { gzipSync } from 'node:zlib';
 // measured 2026-11-09: 12269 + 33 for dropped (4xx) batches not reported as flushed = 12302.
 // 2026-11-13: +32 translated quiz choices and question weights (c62b543), +263 unsent events kept in localStorage across reloads
 // (d77c445), +9 the stamped SDK_VERSION = 12572 locally, 12602 on the release runner (newer esbuild 0.28.x); shrink rather than raise.
-const BUDGET = 12_650;
+// 2026-11-16: +118 following Cookie Munch's banner by itself (consentSource, H-4) = 12681 locally.
+const BUDGET = 12_770;
 // Run after `npm run build`.
 const size = gzipSync(readFileSync('dist/hermetica.js')).length;
 console.log(`sdk-browser: ${size} B gzip (budget ${BUDGET})`);

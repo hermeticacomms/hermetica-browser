@@ -6,6 +6,11 @@ export interface ClientOptions {
   /** require-consent: nothing is stored or sent until analytics consent. opt-out: on until denied. none: always on. */
   consentMode?: 'require-consent' | 'opt-out' | 'none';
   /**
+   * `cookiemunch` (default): follow a Cookie Munch banner on the page by itself: its `hermetica:consent` event and, at start, an answer
+   * `window.CookieMunch` already holds are passed to `consent.update`. `none`: only your own `consent.update` calls count. Ignored with consentMode `none`.
+   */
+  consentSource?: 'cookiemunch' | 'none';
+  /**
    * require-consent only. Default false: events tracked before the visitor decides are dropped. true: keep up to 50 of them in
    * memory (never in storage) and send them if analytics is granted, drop them if denied. Only turn on if your consent basis allows it.
    */

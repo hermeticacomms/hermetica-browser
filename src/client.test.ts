@@ -10,7 +10,7 @@ const fetchMock = vi.fn(async (url: string, init: RequestInit) => {
   return new Response('{}', { status });
 });
 const mk = (o: Partial<Parameters<typeof createClient>[0]> = {}) =>
-  createClient({ siteKey: 'hm_pk_x', endpoint: 'https://api.test', storage: 'memory', batch: { flushMs: 10 }, ...o });
+  createClient({ siteKey: 'hm_pk_x', endpoint: 'https://api.test', storage: 'memory', batch: { flushMs: 10 }, consentSource: 'none', ...o });
 
 beforeEach(() => { sent.length = 0; status = 200; vi.stubGlobal('fetch', fetchMock); localStorage.clear(); });
 afterEach(() => { vi.unstubAllGlobals(); vi.useRealTimers(); });
@@ -316,5 +316,45 @@ describe('queue survives a reload (localStorage, per site)', () => {
     c.track('leaving');
     dispatchEvent(new Event('pagehide'));
     expect(JSON.parse(localStorage.getItem(KEY)!).map((e: any) => e.name)).toEqual(['leaving']);
+  });
+});
+
+describe('consentSource: Cookie Munch (H-4)', () => {
+  const announce = (detail: unknown) => dispatchEvent(new CustomEvent('hermetica:consent', { detail }));
+  // Other tests' clients use consentSource 'none' (mk), so only these listen. No consentSource here = the default.
+  const cm = (o: Partial<Parameters<typeof createClient>[0]> = {}) => createClient({ siteKey: 'hm_pk_cm', endpoint: 'https://api.test', storage: 'memory', batch: { flushMs: 10 }, ...o });
+  afterEach(() => { delete (globalThis as { CookieMunch?: unknown }).CookieMunch; });
+
+  it('follows the banner\'s hermetica:consent event by default', async () => {
+    const c = cm();
+    c.track('before');
+    announce({ analytics: true, marketing: false });
+    expect(c.consent.get()).toEqual({ analytics: true, marketing: false });
+    c.track('after');
+    await c.flush();
+    expect(sent.filter((x) => x.auth === 'Bearer hm_pk_cm').flatMap((x) => x.body.events.map((e: any) => e.name))).toEqual(['after']);
+    announce({ analytics: false, marketing: false });
+    expect(c.consent.get().analytics).toBe(false);
+  });
+
+  it('reads an answer window.CookieMunch already holds at start, and only once there is one', () => {
+    (globalThis as { CookieMunch?: unknown }).CookieMunch = { hasResponse: false, consent: { statistics: false, marketing: false } };
+    expect(cm().consent.get()).toEqual({ analytics: false, marketing: false });
+    (globalThis as { CookieMunch?: unknown }).CookieMunch = { hasResponse: true, consent: { statistics: true, marketing: true } };
+    expect(cm().consent.get()).toEqual({ analytics: true, marketing: true });
+  });
+
+  it('consentSource none, and consentMode none, ignore Cookie Munch; anything but true reads as a no', () => {
+    const own = cm({ consentSource: 'none' });
+    const always = cm({ consentMode: 'none' });
+    const c = cm({ consentMode: 'opt-out' });
+    announce({ analytics: 'yes', marketing: 1 });
+    expect(c.consent.get()).toEqual({ analytics: false, marketing: false });
+    announce({ analytics: true });
+    expect(c.consent.get()).toEqual({ analytics: true, marketing: false });
+    expect(own.consent.get().analytics).toBe(false);
+    expect(always.consent.get()).toEqual({ analytics: true, marketing: true });
+    announce({ analytics: false, marketing: false });
+    expect(always.consent.get()).toEqual({ analytics: true, marketing: true });
   });
 });

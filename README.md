@@ -6,6 +6,8 @@ Install: `npm i @hermeticacomms/sdk-browser`, or from GitHub with `npm i github:
 
 Privacy options: `consentMode: 'require-consent'` (default) drops events tracked before the visitor decides, unless `bufferUntilConsent: true`; `beforeSend(event) => event | null` edits or drops any event; `stripQuery: true` / `allowParams: ['ref']` keep tokens and emails in URLs out of `context.page`. Failed sends fire `error` (4xx carry `status` and are not retried); `hm.debug.lastError()` returns the last one.
 
+Cookie Munch: with its banner on the page (`vendorHooks.hermetica` on), the client follows it by itself, no code line needed. It listens for the `hermetica:consent` event (`{ analytics, marketing }`) from the moment it is created, and at start reads an answer `window.CookieMunch` already holds; both go to `consent.update`. `consentSource: 'none'` turns that off (only your own `consent.update` calls count); with `consentMode: 'none'` it does nothing. Every key the SDK writes in the browser is listed in `src/embed-manifest.ts`, served as `/.well-known/hermetica-embed.json` (Cookie Munch's embed-v1 shape); a new storage key needs a row there, or `embed-manifest.test.ts` fails.
+
 Site settings: `remoteConfig: true` applies the settings saved on the Sites screen (consent mode for the visitor's region, automatic page views and `pageViewRoutes`, URL cleaning, `identify` rules, batching) to every option not passed in code; calls wait up to 3 s for them. `hm.debug.test()` checks the queued events against the server's schema and consent rules without storing them.
 
 ## Ad click ids (`@hermeticacomms/sdk-browser/ads`)

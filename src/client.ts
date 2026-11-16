@@ -236,6 +236,15 @@ export function createClient(opts: ClientOptions): Client {
     timer ??= setTimeout(() => void flush(), cfg.flushMs);
   }
 
+  // Cookie Munch's banner dispatches `hermetica:consent` ({ analytics, marketing }) on each answer; a returning visitor's answer may already be
+  // on window.CookieMunch. Applied once the site's consent mode is known, never under `none` (always on). Anything but `true` reads as a no.
+  const follow = (d?: Partial<Consent> | null) => whenReady(() => { if (cfg.mode !== 'none' && d) api.consent.update({ analytics: d.analytics === true, marketing: d.marketing === true }); });
+  if (opts.consentSource !== 'none' && typeof addEventListener === 'function') {
+    addEventListener('hermetica:consent', (e) => follow((e as CustomEvent<Partial<Consent>>).detail));
+    const cm = (globalThis as { CookieMunch?: { hasResponse?: boolean; consent?: { statistics?: boolean; marketing?: boolean } } }).CookieMunch;
+    if (cm?.hasResponse) follow({ analytics: cm.consent?.statistics, marketing: cm.consent?.marketing });
+  }
+
   const settle = (r: Partial<RemoteSettings> | null) => {
     if (ready) return; // a late answer after the timeout is ignored: the defaults are already in force
     if (r) {
