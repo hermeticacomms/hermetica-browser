@@ -1,6 +1,6 @@
 {
-  "name": "@hermeticacomms/sdk-browser",
-  "version": "0.4.0",
+  "name": "@hermeticor/sdk-browser",
+  "version": "0.4.5",
   "description": "Hermetica browser SDK: event tracking, forms, web push, in-app messages, ad click ids",
   "license": "MIT",
   "type": "module",
@@ -9,6 +9,13 @@
     "url": "git+https://github.com/hermeticacomms/hermetica-browser.git"
   },
   "homepage": "https://github.com/hermeticacomms/hermetica-browser#readme",
+  "keywords": [
+    "hermeticor",
+    "hermetica",
+    "email",
+    "sms",
+    "outreach"
+  ],
   "publishConfig": {
     "access": "public",
     "provenance": true
