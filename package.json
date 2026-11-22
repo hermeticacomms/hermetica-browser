@@ -1,6 +1,6 @@
 {
   "name": "@hermeticor/sdk-browser",
-  "version": "0.4.9",
+  "version": "0.4.15",
   "description": "Hermetica browser SDK: event tracking, forms, web push, in-app messages, ad click ids",
   "license": "MIT",
   "type": "module",
@@ -48,6 +48,10 @@
     "./hybrid": {
       "types": "./dist/types/hybrid.d.ts",
       "default": "./dist/hybrid.esm.js"
+    },
+    "./extension": {
+      "types": "./dist/types/extension.d.ts",
+      "default": "./dist/extension.esm.js"
     },
     "./sw": "./sw/hermetica-sw.js"
   },
