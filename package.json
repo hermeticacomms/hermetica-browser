@@ -6,9 +6,9 @@
   "type": "module",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/hermeticacomms/hermetica-browser.git"
+    "url": "git+https://github.com/hermeticor/hermetica-browser.git"
   },
-  "homepage": "https://github.com/hermeticacomms/hermetica-browser#readme",
+  "homepage": "https://github.com/hermeticor/hermetica-browser#readme",
   "keywords": [
     "hermeticor",
     "hermetica",
@@ -48,10 +48,6 @@
     "./hybrid": {
       "types": "./dist/types/hybrid.d.ts",
       "default": "./dist/hybrid.esm.js"
-    },
-    "./extension": {
-      "types": "./dist/types/extension.d.ts",
-      "default": "./dist/extension.esm.js"
     },
     "./sw": "./sw/hermetica-sw.js"
   },
