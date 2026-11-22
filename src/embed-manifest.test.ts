@@ -4,7 +4,8 @@ import { EMBED_STORAGE, embedManifest } from './embed-manifest.ts';
 
 // Every browser key the SDK writes must be declared, so Cookie Munch (and any consent tool reading the manifest) can list and block it.
 const dir = (d: string) => new URL(`../${d}/`, import.meta.url);
-const sources = [...readdirSync(dir('src')).filter((f) => f.endsWith('.ts') && !f.endsWith('.test.ts') && f !== 'embed-manifest.ts').map((f) => readFileSync(new URL(f, dir('src')), 'utf8')),
+// extension*.ts store in the extension's own chrome.storage, never in a website visitor's browser: not part of a site's embed manifest.
+const sources = [...readdirSync(dir('src')).filter((f) => f.endsWith('.ts') && !f.endsWith('.test.ts') && f !== 'embed-manifest.ts' && !f.startsWith('extension')).map((f) => readFileSync(new URL(f, dir('src')), 'utf8')),
   ...readdirSync(dir('sw')).map((f) => readFileSync(new URL(f, dir('sw')), 'utf8'))].join('\n');
 
 describe('embed manifest', () => {
